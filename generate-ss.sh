@@ -3,7 +3,7 @@ cfg=${1:-/etc/shadowsocks-libev/config.json}
 [[ ! -f $cfg ]] && cfg="$(dirname $0)/test-config.json"
 [[ ! -f $cfg ]] && { echo "Config not found"; exit 1; }
 command -v jq >/dev/null || { echo "jq required"; exit 1; }
-srv=$(curl -s --max-time 5 ip.me 2>/dev/null||curl -s --max-time 5 ifconfig.me 2>/dev/null||hostname -I|awk '{print $1}'|tr -d ' ')
+srv=$(curl -4 -s --max-time 5 ip.me 2>/dev/null||curl -4 -s --max-time 5 ifconfig.me 2>/dev/null||hostname -I|awk '{print $1}'|tr -d ' ')
 mtd=$(jq -r '.method//empty' $cfg)
 pwd=$(jq -r '.password//empty' $cfg)
 prt=$(jq -r '.server_port//empty' $cfg)
