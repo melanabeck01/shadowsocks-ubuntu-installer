@@ -1,0 +1,36 @@
+name: Test Shadowsocks Installer
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ubuntu-version: ['22.04', '24.04']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Ubuntu ${{ matrix.ubuntu-version }}
+      uses: docker://ubuntu:${{ matrix.ubuntu-version }}
+      
+    - name: Test script syntax
+      run: bash -n shadowsocks-installer.sh
+      
+    - name: Test function definitions
+      run: |
+        source shadowsocks-installer.sh
+        # Test password generation
+        password=$(genpass)
+        echo "Generated password: $password"
+        [ ${#password} -eq 25 ] || exit 1
+        
+        # Test port generation  
+        port=$(genport)
+        echo "Generated port: $port"
+        [ $port -ge 10000 ] && [ $port -le 65535 ] || exit 1
