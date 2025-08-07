@@ -181,6 +181,6 @@ show_info "$password" "$port"
 log "Installation completed successfully"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
 main "$@"
 fi
