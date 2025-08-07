@@ -9,4 +9,4 @@ pwd=$(jq -r '.password//empty' $cfg)
 prt=$(jq -r '.server_port//empty' $cfg)
 [[ -z "$mtd$pwd$prt" ]] && { echo "Invalid config"; exit 1; }
 b64=$(echo -n "$mtd:$pwd"|base64 -w0)
-echo "ss://$b64@$srv:$prt#SS-$(hostname -s)"
+echo "ss://$b64@$srv:$prt/"
