@@ -15,7 +15,6 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 err() { log "ERROR: $*"; exit 1; }
 chk() { command -v "$1" >/dev/null || err "$1 not found"; }
 genpass() { openssl rand -base64 32 | tr -d "=+/" | cut -c1-25; }
-genport() { shuf -i 10000-65535 -n1; }
 get_ipv4() { 
     local ip
     for service in "ifconfig.me" "ipv4.icanhazip.com" "api.ipify.org" "checkip.amazonaws.com"; do
@@ -178,7 +177,7 @@ main(){
 log "Starting Shadowsocks installation"
 ubuntu_ver=$(detect_ubuntu)
 password=$(genpass)
-port=$(genport)
+port=8388
 install_deps
 install_shadowsocks "$ubuntu_ver"
 create_config "$password" "$port"
