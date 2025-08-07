@@ -15,6 +15,26 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 err() { log "ERROR: $*"; exit 1; }
 chk() { command -v "$1" >/dev/null || err "$1 not found"; }
 genpass() { openssl rand -base64 32 | tr -d "=+/" | cut -c1-25; }
+kill_existing_processes() {
+    log "Killing existing Shadowsocks processes"
+    pkill -f "ss-server" 2>/dev/null || true
+    pkill -f "shadowsocks" 2>/dev/null || true
+    sleep 2
+}
+check_port_conflict() {
+    local port=$1
+    if ss -tuln | grep -q ":$port "; then
+        log "Port $port is in use, finding alternative"
+        for p in {8388..8398}; do
+            if ! ss -tuln | grep -q ":$p "; then
+                echo $p
+                return
+            fi
+        done
+        err "No available ports found"
+    fi
+    echo $port
+}
 get_ipv4() { 
     local ip
     for service in "ifconfig.me" "ipv4.icanhazip.com" "api.ipify.org" "checkip.amazonaws.com"; do
@@ -39,52 +59,73 @@ DEBIAN_FRONTEND=noninteractive apt update -qq || err "Failed to update packages"
 DEBIAN_FRONTEND=noninteractive apt install -y curl wget gnupg lsb-release ufw openssl pwgen || err "Failed to install dependencies"
 }
 
+cleanup_services() {
+    log "Cleaning up existing services"
+    for service in shadowsocks-libev shadowsocks-server ss-server; do
+        systemctl stop "$service" 2>/dev/null || true
+        systemctl disable "$service" 2>/dev/null || true
+    done
+    systemctl daemon-reload
+}
 install_shadowsocks(){
 local ubuntu_ver=$1
 log "Installing shadowsocks-libev for Ubuntu $ubuntu_ver"
+kill_existing_processes
+cleanup_services
 DEBIAN_FRONTEND=noninteractive apt update -qq
 DEBIAN_FRONTEND=noninteractive apt install -y shadowsocks-libev || err "Failed to install shadowsocks-libev"
-systemctl stop shadowsocks-libev 2>/dev/null||true
+kill_existing_processes
 }
 
 create_config(){
 local password=$1
 local port=$2
-log "Creating configuration"
+log "Creating configuration with dual-stack support"
 mkdir -p "$CONFIG_DIR"
 cat>"$CONFIG_FILE"<<EOF
 {
-    "server":"0.0.0.0",
+    "server":["::0","0.0.0.0"],
     "server_port":$port,
     "password":"$password",
     "timeout":300,
     "method":"aes-256-gcm",
-    "fast_open":false,
-    "workers":1,
-    "prefer_ipv6":false
+    "mode":"tcp_and_udp",
+    "fast_open":false
 }
 EOF
 chmod 600 "$CONFIG_FILE"
 }
 
+validate_config() {
+    log "Validating configuration"
+    if ! /usr/bin/ss-server -c "$CONFIG_FILE" -t 2>&1 | grep -q "listening"; then
+        log "Testing configuration with ss-server"
+        timeout 5 /usr/bin/ss-server -c "$CONFIG_FILE" -v 2>&1 | head -10 || true
+    fi
+}
 setup_service() {
     log "Setting up systemd service"
+    kill_existing_processes
+    cleanup_services
     
     # Create custom service file
     cat > /etc/systemd/system/shadowsocks-server.service << 'EOF'
 [Unit]
 Description=Shadowsocks Server
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=nobody
 Group=nogroup
 WorkingDirectory=/etc/shadowsocks-libev
-ExecStart=/usr/bin/ss-server -c /etc/shadowsocks-libev/config.json
+ExecStart=/usr/bin/ss-server -c /etc/shadowsocks-libev/config.json -v
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
-RestartSec=5
+RestartSec=3
 LimitNOFILE=65535
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
@@ -93,22 +134,28 @@ EOF
     # Fix permissions
     chown -R nobody:nogroup "$CONFIG_DIR"
     chmod 755 "$CONFIG_DIR"
-    chmod 644 "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
     
-    # Disable default service and use our custom one
-    systemctl disable shadowsocks-libev 2>/dev/null || true
-    systemctl stop shadowsocks-libev 2>/dev/null || true
+    validate_config
     
     systemctl daemon-reload
     systemctl enable shadowsocks-server || err "Failed to enable service"
     systemctl start shadowsocks-server || err "Failed to start service"
-    sleep 3
+    sleep 5
     
     # Check service status
     if ! systemctl is-active --quiet shadowsocks-server; then
         log "Service failed to start, checking logs..."
-        journalctl -u shadowsocks-server --no-pager -l
+        journalctl -u shadowsocks-server --no-pager -l -n 20
         err "Service not running"
+    fi
+    
+    # Test connection
+    local port=$(grep server_port "$CONFIG_FILE" | grep -o '[0-9]*')
+    if ss -tuln | grep -q ":$port "; then
+        log "Service successfully listening on port $port"
+    else
+        err "Service not listening on expected port $port"
     fi
 }
 
@@ -177,7 +224,8 @@ main(){
 log "Starting Shadowsocks installation"
 ubuntu_ver=$(detect_ubuntu)
 password=$(genpass)
-port=8388
+port=$(check_port_conflict 8388)
+log "Using port: $port"
 install_deps
 install_shadowsocks "$ubuntu_ver"
 create_config "$password" "$port"
