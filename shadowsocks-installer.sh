@@ -16,6 +16,14 @@ err() { log "ERROR: $*"; exit 1; }
 chk() { command -v "$1" >/dev/null || err "$1 not found"; }
 genpass() { openssl rand -base64 32 | tr -d "=+/" | cut -c1-25; }
 genport() { shuf -i 10000-65535 -n1; }
+get_ipv4() { 
+    local ip
+    for service in "ifconfig.me" "ipv4.icanhazip.com" "api.ipify.org" "checkip.amazonaws.com"; do
+        ip=$(curl -s -4 --connect-timeout 5 "$service" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+        [[ -n "$ip" ]] && echo "$ip" && return 0
+    done
+    echo "YOUR_SERVER_IP"
+}
 
 detect_ubuntu() {
     local ver=$(lsb_release -rs 2>/dev/null || echo "")
@@ -53,7 +61,8 @@ cat>"$CONFIG_FILE"<<EOF
     "timeout":300,
     "method":"aes-256-gcm",
     "fast_open":false,
-    "workers":1
+    "workers":1,
+    "prefer_ipv6":false
 }
 EOF
 chmod 600 "$CONFIG_FILE"
@@ -144,7 +153,7 @@ chmod +x "$BACKUP_DIR/restore.sh"
 show_info(){
 local password=$1
 local port=$2
-local server_ip=$(curl -s ifconfig.me||curl -s ipinfo.io/ip||echo "YOUR_SERVER_IP")
+local server_ip=$(get_ipv4)
 log "Installation completed successfully!"
 echo "
 ┌─────────────────────────────────────────────┐

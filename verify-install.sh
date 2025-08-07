@@ -24,6 +24,13 @@ fi
 if [[ -f "/etc/shadowsocks-libev/config.json" ]]; then
     echo "✅ Configuration file exists"
     echo "🔐 Method: $(grep method /etc/shadowsocks-libev/config.json | cut -d: -f2 | tr -d ' ",')"
+    if grep -q '"prefer_ipv6":false' /etc/shadowsocks-libev/config.json; then
+        echo "🌐 IPv4 preference: enabled"
+    else
+        echo "⚠️  IPv4 preference: not explicitly set"
+    fi
+    server_bind=$(grep '"server"' /etc/shadowsocks-libev/config.json | cut -d: -f2 | tr -d ' ",')
+    echo "🖥️  Server bind: $server_bind"
 else
     echo "❌ Configuration file missing"
     exit 1
